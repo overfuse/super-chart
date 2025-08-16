@@ -5,6 +5,7 @@ import LocalView from "./components/LocalView";
 import useCSVWorker from "./hooks/useCSVWorker";
 import { useStore } from "./store";
 import usePlayback from "./hooks/usePlayback";
+import Header from "./components/Header";
 
 export default function App() {
   useCSVWorker();
@@ -17,8 +18,7 @@ export default function App() {
 
   return (
     <div className="space-y-6 mx-auto w-[1002px]">
-      <h1 className="text-2xl font-semibold">Super Chart</h1>
-
+      <Header />
       <FileUpload />
       {totalRows > 0 && (
         <>
