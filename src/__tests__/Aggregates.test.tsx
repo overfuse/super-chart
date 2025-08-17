@@ -1,3 +1,4 @@
+import React from "react";
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import Aggregates from "../components/Aggregates";
@@ -19,5 +20,3 @@ describe("Aggregates component", () => {
     expect(screen.getByText(/Maximum/i)).toBeInTheDocument();
   });
 });
-
-

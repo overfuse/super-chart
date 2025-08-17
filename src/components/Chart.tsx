@@ -2,8 +2,10 @@ import { useState, useRef, useMemo } from "react";
 import type uPlot from "uplot";
 import UplotReact from "uplot-react";
 import "uplot/dist/uPlot.min.css";
-import type { Window } from "../types/window";
-interface Props { data: Window | null }
+import type { ChartWindow } from "../types/window";
+interface Props {
+  data: ChartWindow | null;
+}
 
 export default function Chart({ data }: Props) {
   const [fps, setFps] = useState(0);
@@ -33,7 +35,13 @@ export default function Chart({ data }: Props) {
       const b = yMax[i];
       const va = Number.isFinite(a) ? a : y[i];
       const vb = Number.isFinite(b) ? b : y[i];
-      if (va <= vb) { lo[i] = va; hi[i] = vb; } else { lo[i] = vb; hi[i] = va; }
+      if (va <= vb) {
+        lo[i] = va;
+        hi[i] = vb;
+      } else {
+        lo[i] = vb;
+        hi[i] = va;
+      }
     }
     const d: uPlot.AlignedData = [x, y, lo, hi];
     lastDataRef.current = d;
@@ -84,7 +92,7 @@ export default function Chart({ data }: Props) {
         {
           series: [2, 3],
           fill: "#fca5a533", // Semi-transparent pale red (20% opacity)
-          dir: 1
+          dir: 1,
         },
       ],
       hooks: {
@@ -102,10 +110,7 @@ export default function Chart({ data }: Props) {
             const last = lastDrawRef.current;
             if (last != null) {
               const inst = 1000 / (now - last);
-              const ema =
-                emaFpsRef.current == null
-                  ? inst
-                  : 0.9 * emaFpsRef.current + 0.1 * inst;
+              const ema = emaFpsRef.current == null ? inst : 0.9 * emaFpsRef.current + 0.1 * inst;
               emaFpsRef.current = ema;
               nextFpsRef.current = ema;
             }
@@ -132,15 +137,14 @@ export default function Chart({ data }: Props) {
         <UplotReact options={options} data={aligned} />
       </div>
       <div className="absolute top-2 right-2 rounded bg-black/80 text-white text-xs px-2 py-1 font-mono">
-        {fps ? fps.toFixed(1) : "—"} fps ·{" "}
-        {lastMs != null ? `${lastMs.toFixed(1)} ms` : "— ms"}
+        {fps ? fps.toFixed(1) : "—"} fps · {lastMs != null ? `${lastMs.toFixed(1)} ms` : "— ms"}
       </div>
 
       {/* Legend */}
       <div className="mt-2 flex items-center gap-4 text-sm text-gray-600">
         <div className="flex items-center gap-2">
           <div className="w-4 h-0.5 bg-red-600"></div>
-          <span>Data Series ({(data?.yLine?.length ?? 0)}) points</span>
+          <span>Data Series ({data?.yLine?.length ?? 0}) points</span>
         </div>
         {(data?.yMin?.length ?? 0) > 0 && (data?.yMax?.length ?? 0) > 0 && (
           <div className="flex items-center gap-2">

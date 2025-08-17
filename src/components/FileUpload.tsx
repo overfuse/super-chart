@@ -8,12 +8,14 @@ export default function FileUpload() {
   const totalRows = useStore((s) => (s.useExternalStorage ? s.totalRows : s.x ? s.x.length : 0));
   const csvProcessing = useStore((s) => s.csvProcessing);
   const csvError = useStore((s) => s.csvError);
+  const loadFile = useStore((s) => s.loadFile);
+  const loadExample = useStore((s) => s.loadExample);
 
   const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setRealUploaded(true);
-    window.postMessage({ type: "CSV_FILE", file });
+    loadFile(file);
   };
 
   return (
@@ -33,11 +35,7 @@ export default function FileUpload() {
               type="button"
               className="text-sm px-3 py-2 rounded border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
               onClick={async () => {
-                const url = `${import.meta.env.BASE_URL}data_points.csv`;
-                const res = await fetch(url);
-                const blob = await res.blob();
-                const file = new File([blob], "data_points.csv", { type: "text/csv" });
-                window.postMessage({ type: "CSV_FILE", file });
+                await loadExample();
               }}
             >
               Load example dataset

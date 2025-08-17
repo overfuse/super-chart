@@ -1,6 +1,15 @@
 import { useEffect } from "react";
 import { useStore } from "../store";
 import { getCSVWorker } from "../worker/getCSVWorker";
+import type { CsvOutboundMessage } from "../types/ipc";
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isCsvMessage(msg: unknown): msg is CsvOutboundMessage {
+  return isObject(msg) && typeof (msg as { type?: unknown }).type === "string";
+}
 
 export default function useCSVWorker() {
   const setUseExternalStorage = useStore((s) => s.setUseExternalStorage);
@@ -15,8 +24,10 @@ export default function useCSVWorker() {
     const worker = getCSVWorker();
 
     const onMessage = (e: MessageEvent) => {
-      const payload = e.data as import("../types/ipc").CsvOutboundMessage;
-      // CSV_WINDOW is handled by hooks that request windows (useWindowRows/useDownsampleExternal)
+      const payloadUnknown: unknown = e.data as unknown;
+      if (!isCsvMessage(payloadUnknown)) return;
+      const payload = payloadUnknown as CsvOutboundMessage;
+      // CSV_WINDOW is handled by hooks that request windows (useChartWindow/useDownsampleExternal)
       if (payload.type === "CSV_WINDOW") return;
       if (payload.type === "CSV_READY") {
         setXY(null, null);
@@ -41,31 +52,19 @@ export default function useCSVWorker() {
 
     worker.addEventListener("message", onMessage);
 
-    const listener = (e: MessageEvent) => {
-      if (e.data?.type === "CSV_FILE") {
-        // Release previous dataset first to free memory
-        try {
-          worker.postMessage({ type: "CSV_RELEASE" });
-        } catch {}
-        // Reset state for new dataset
-        setUseExternalStorage(false);
-        setXY(null, null);
-        setTotalRows(0);
-        setCsvProcessMs(0);
-        setCsvError(null);
-        setCsvProcessing(true);
-        // Start parsing
-        worker.postMessage(e.data.file as File);
-      }
-    };
-
-    window.addEventListener("message", listener);
     return () => {
-      window.removeEventListener("message", listener);
       worker.removeEventListener("message", onMessage);
       try {
         worker.postMessage({ type: "CSV_RELEASE" });
       } catch {}
     };
-  }, [setUseExternalStorage, setTotalRows, setCsvProcessMs, setCsvProcessing, setCsvError, bumpDataVersion, setXY]);
+  }, [
+    setUseExternalStorage,
+    setTotalRows,
+    setCsvProcessMs,
+    setCsvProcessing,
+    setCsvError,
+    bumpDataVersion,
+    setXY,
+  ]);
 }

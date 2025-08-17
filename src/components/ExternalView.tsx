@@ -1,8 +1,8 @@
 import Chart from "./Chart";
 import Aggregates from "./Aggregates";
 import { useStore } from "../store";
-import useWindowData from "../hooks/useWindowData";
-import useDownsampleExternal from "../hooks/useDownsampleExternal";
+import useWindowExternal from "../hooks/useWindowExternal";
+import useDownsample from "../hooks/useDownsample";
 import useAggregates from "../hooks/useAggregates";
 import useTargetPoints from "../hooks/useTargetPoints";
 
@@ -11,9 +11,9 @@ export default function ExternalView() {
   const N = useStore((s) => s.N);
   const dataVersion = useStore((s) => s.dataVersion);
 
-  const win = useWindowData(S, N, dataVersion);
+  const win = useWindowExternal(S, N, dataVersion);
   const targetPoints = useTargetPoints();
-  const ds = useDownsampleExternal(S, N, targetPoints, dataVersion, win);
+  const ds = useDownsample(win ?? null, targetPoints, S);
   const aggs = useAggregates(win);
   const count = win?.x?.length ?? 0;
 
@@ -24,5 +24,3 @@ export default function ExternalView() {
     </>
   );
 }
-
-

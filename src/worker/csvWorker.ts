@@ -12,161 +12,149 @@ let totalRows = 0;
 // (downsampling cache removed in simplified design)
 
 function resetStorage() {
-	xChunks = [];
-	yChunks = [];
-	totalRows = 0;
+  xChunks = [];
+  yChunks = [];
+  totalRows = 0;
 }
 
 function ensureCapacity(nextIndex: number) {
-	while (nextIndex >= xChunks.length * CHUNK_SIZE) {
-		// allocate ArrayBuffer-backed chunks
-		xChunks.push(new Float64Array(CHUNK_SIZE));
-		yChunks.push(new Float64Array(CHUNK_SIZE));
-	}
+  while (nextIndex >= xChunks.length * CHUNK_SIZE) {
+    // allocate ArrayBuffer-backed chunks
+    xChunks.push(new Float64Array(CHUNK_SIZE));
+    yChunks.push(new Float64Array(CHUNK_SIZE));
+  }
 }
 
 function writeRow(i: number, x: number, y: number) {
-	ensureCapacity(i);
-	const chunkIdx = Math.floor(i / CHUNK_SIZE);
-	const offset = i % CHUNK_SIZE;
-	xChunks[chunkIdx][offset] = x;
-	yChunks[chunkIdx][offset] = y;
+  ensureCapacity(i);
+  const chunkIdx = Math.floor(i / CHUNK_SIZE);
+  const offset = i % CHUNK_SIZE;
+  xChunks[chunkIdx][offset] = x;
+  yChunks[chunkIdx][offset] = y;
 }
 
 // helper removed
 
-import type { CsvInboundMessage } from "../types/ipc";
+import type { CsvInboundMessage, CsvReadWindowReq } from "../types/ipc";
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isReadWindowMessage(msg: unknown): msg is CsvReadWindowReq {
+  if (!isObject(msg)) return false;
+  const { type, start, count, reqId } = msg as Partial<CsvReadWindowReq> & { type?: unknown };
+  return (
+    type === "READ_WINDOW" &&
+    typeof start === "number" &&
+    Number.isFinite(start) &&
+    typeof count === "number" &&
+    Number.isFinite(count) &&
+    typeof reqId === "number" &&
+    Number.isFinite(reqId)
+  );
+}
 
 self.onmessage = (e: MessageEvent<CsvInboundMessage>) => {
-	const msg = e.data as CsvInboundMessage;
-	if (msg && (msg as { type?: string }).type === "READ_WINDOW") {
-		const m = msg as import("../types/ipc").CsvReadWindowReq;
-		const start = m.start | 0;
-		const count = m.count | 0;
-		const reqId = m.reqId | 0;
-		const end = Math.min(totalRows, start + count);
-		const len = Math.max(0, end - start);
-		const x = new Float64Array(len);
-		const y = new Float64Array(len);
-		for (let i = 0; i < len; i++) {
-			const idx = start + i;
-			const cIdx = Math.floor(idx / CHUNK_SIZE);
-			const off = idx % CHUNK_SIZE;
-			x[i] = xChunks[cIdx][off];
-			y[i] = yChunks[cIdx][off];
-		}
-		postMessage({ type: "CSV_WINDOW", x, y, reqId }, [x.buffer, y.buffer]);
-		return;
-	}
-	// csvWorker no longer handles downsample or csv aggregates – defer to dedicated workers
-	if (msg && (msg as { type?: string }).type === "CSV_AGG_REQ") {
-		const m = msg as import("../types/ipc").CsvAggReq;
-		const start = m.start | 0;
-		const count = m.count | 0;
-		const reqId = m.reqId | 0;
-		const end = Math.min(totalRows, start + count);
-		let min = Infinity;
-		let max = -Infinity;
-		let sum = 0;
-		let valid = 0;
-		for (let j = start; j < end; j++) {
-			const cIdx = Math.floor(j / CHUNK_SIZE);
-			const off = j % CHUNK_SIZE;
-			const v = yChunks[cIdx][off];
-			if (Number.isFinite(v)) {
-				valid++;
-				sum += v;
-				if (v < min) min = v;
-				if (v > max) max = v;
-			}
-		}
-		let variance = 0;
-		if (valid > 0) {
-			const avg = sum / valid;
-			let sumSq = 0;
-			for (let j = start; j < end; j++) {
-				const cIdx = Math.floor(j / CHUNK_SIZE);
-				const off = j % CHUNK_SIZE;
-				const v = yChunks[cIdx][off];
-				if (Number.isFinite(v)) {
-					const d = v - avg;
-					sumSq += d * d;
-				}
-			}
-			variance = valid > 1 ? sumSq / valid : 0;
-			postMessage({ type: "CSV_AGG_RES", min, max, average: avg, variance, count: valid, reqId });
-		} else {
-			postMessage({ type: "CSV_AGG_RES", min: 0, max: 0, average: 0, variance: 0, count: 0, reqId });
-		}
-		return;
-	}
-	// (Downsampling removed from csvWorker)
-	if (msg && (msg as { type?: string }).type === "CSV_RELEASE") {
-		resetStorage();
-		postMessage({ type: "CSV_RELEASED" });
-		return;
-	}
+  const msgUnknown: unknown = e.data as unknown;
+  if (isReadWindowMessage(msgUnknown)) {
+    const { start: s0, count: c0, reqId: r0 } = msgUnknown as CsvReadWindowReq;
+    const start = s0 | 0;
+    const count = c0 | 0;
+    const reqId = r0 | 0;
+    const end = Math.min(totalRows, start + count);
+    const len = Math.max(0, end - start);
+    const x = new Float64Array(len);
+    const y = new Float64Array(len);
+    for (let i = 0; i < len; i++) {
+      const idx = start + i;
+      const cIdx = Math.floor(idx / CHUNK_SIZE);
+      const off = idx % CHUNK_SIZE;
+      x[i] = xChunks[cIdx][off];
+      y[i] = yChunks[cIdx][off];
+    }
+    postMessage({ type: "CSV_WINDOW", x, y, reqId }, [x.buffer, y.buffer]);
+    return;
+  }
 
-	// Only handle File uploads here
-	if (!(msg instanceof File)) return;
-	const file = msg as File;
+  // (Downsampling and aggregates are handled outside this worker)
+  if (isObject(msgUnknown) && (msgUnknown as { type?: unknown }).type === "CSV_RELEASE") {
+    resetStorage();
+    postMessage({ type: "CSV_RELEASED" });
+    return;
+  }
 
-	// Basic sanity checks before parsing
-	if (file.size === 0) {
-		postMessage({ type: "CSV_ERROR", message: "The selected file is empty." });
-		return;
-	}
+  // Only handle File uploads here
+  if (!(msgUnknown instanceof File)) return;
+  const file = msgUnknown;
 
-	resetStorage();
-	let invalidRowCount = 0;
-	let i = 0;
-	const t0 = performance.now();
-	try {
-		Papa.parse(file, {
-			header: false,
-			dynamicTyping: false,
-			fastMode: true,
-			skipEmptyLines: true,
-			worker: false,
-			chunkSize: 8 * 1024 * 1024,
-			chunk: (results: { data: unknown[] }) => {
-				const dataRows = results.data;
-				for (let r = 0; r < dataRows.length; r++) {
-					const row = dataRows[r] as unknown;
-					if (!Array.isArray(row) || row.length < 2) {
-						invalidRowCount++;
-						continue;
-					}
-					const xNum = +row[0];
-					const yNum = +row[1];
-					if (!Number.isFinite(xNum) || !Number.isFinite(yNum)) {
-						invalidRowCount++;
-						continue;
-					}
-					writeRow(i++, xNum, yNum);
-				}
-			},
-			error: (error: unknown) => {
-				postMessage({
-					type: "CSV_ERROR",
-					message: (error as Error)?.message || "Failed to parse CSV file.",
-				});
-			},
-			complete: (results: { errors?: { message: string }[] }) => {
-				totalRows = i;
-				const elapsed = performance.now() - t0;
-				if (totalRows === 0) {
-					const msg =
-						results?.errors && results.errors.length > 0
-							? `No valid rows parsed. First error: ${results.errors[0].message}`
-							: "No valid rows found in the CSV.";
-					postMessage({ type: "CSV_ERROR", message: msg });
-					return;
-				}
-				postMessage({ type: "CSV_READY", totalRows, elapsedMs: elapsed, warning: invalidRowCount > 0 ? `${invalidRowCount} row(s) skipped due to invalid data.` : undefined });
-			},
-		});
-	} catch (err) {
-		postMessage({ type: "CSV_ERROR", message: (err as Error)?.message || "Unexpected error while parsing." });
-	}
+  // Basic sanity checks before parsing
+  if (file.size === 0) {
+    postMessage({ type: "CSV_ERROR", message: "The selected file is empty." });
+    return;
+  }
+
+  resetStorage();
+  let invalidRowCount = 0;
+  let i = 0;
+  const t0 = performance.now();
+  try {
+    Papa.parse(file, {
+      header: false,
+      dynamicTyping: false,
+      fastMode: true,
+      skipEmptyLines: true,
+      worker: false,
+      chunkSize: 8 * 1024 * 1024,
+      chunk: (results: { data: unknown[] }) => {
+        const dataRows = results.data;
+        for (let r = 0; r < dataRows.length; r++) {
+          const row = dataRows[r] as unknown;
+          if (!Array.isArray(row) || row.length < 2) {
+            invalidRowCount++;
+            continue;
+          }
+          const xNum = +row[0];
+          const yNum = +row[1];
+          if (!Number.isFinite(xNum) || !Number.isFinite(yNum)) {
+            invalidRowCount++;
+            continue;
+          }
+          writeRow(i++, xNum, yNum);
+        }
+      },
+      error: (error: unknown) => {
+        postMessage({
+          type: "CSV_ERROR",
+          message: (error as Error)?.message || "Failed to parse CSV file.",
+        });
+      },
+      complete: (results: { errors?: { message: string }[] }) => {
+        totalRows = i;
+        const elapsed = performance.now() - t0;
+        if (totalRows === 0) {
+          const msg =
+            results?.errors && results.errors.length > 0
+              ? `No valid rows parsed. First error: ${results.errors[0].message}`
+              : "No valid rows found in the CSV.";
+          postMessage({ type: "CSV_ERROR", message: msg });
+          return;
+        }
+        postMessage({
+          type: "CSV_READY",
+          totalRows,
+          elapsedMs: elapsed,
+          warning:
+            invalidRowCount > 0
+              ? `${invalidRowCount} row(s) skipped due to invalid data.`
+              : undefined,
+        });
+      },
+    });
+  } catch (err) {
+    postMessage({
+      type: "CSV_ERROR",
+      message: (err as Error)?.message || "Unexpected error while parsing.",
+    });
+  }
 };
